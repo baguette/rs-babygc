@@ -7,8 +7,12 @@ use std::cell::RefCell;
 
 const INITIAL_GC_THRESHOLD: usize = 10;
 
-type GCHeader = bool;   // True if marked, false otherwise
 type Sobject = Rc<(Cell<GCHeader>, RefCell<Object>)>;
+
+#[derive(Clone, Copy, Debug)]
+struct GCHeader {
+  marked: bool
+}
 
 #[derive(Debug)]
 enum Vobject {
@@ -44,11 +48,11 @@ impl VM {
   }
 
   fn sweep(&mut self) {
-    self.heap.retain(|obj| { let (ref gch, _) = **obj; gch.get() });
+    self.heap.retain(|obj| { let (ref gch, _) = **obj; gch.get().marked });
 
     for obj in &self.heap {
       let (ref gch, _) = **obj;
-      gch.set(false);
+      gch.set(GCHeader { marked: false, .. gch.get() });
     }
   }
 
@@ -88,11 +92,15 @@ impl Object {
       vm.gc()
     }
 
+    let gch = GCHeader {
+      marked: false
+    };
+
     let obj = Object {
       val: val
     };
 
-    let obj = Rc::new((Cell::new(false), RefCell::new(obj)));
+    let obj = Rc::new((Cell::new(gch), RefCell::new(obj)));
     vm.heap.push(obj.clone());
     obj
   }
@@ -100,11 +108,11 @@ impl Object {
   fn mark(obj: &Sobject) {
     let (ref gch, ref val) = **obj;
 
-    if gch.get() {
+    if gch.get().marked {
       return;
     }
 
-    gch.set(true);
+    gch.set(GCHeader { marked: true, .. gch.get() });
 
     if let Vobject::Pair(ref head, ref tail) = val.borrow().val {
       Object::mark(head);
