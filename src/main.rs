@@ -193,6 +193,26 @@ fn test4() {
   assert!(vm.heap.len() == 4);
 }
 
+fn perftest() {
+  println!("Performance Test.");
+
+  let mut vm = VM::new();
+
+  for i in 0..1000 {
+    for _ in 0..20 {
+      vm.push_int(i);
+    }
+
+    for _ in 0..20 {
+      vm.pop();
+    }
+  }
+
+  vm.gc();
+
+  assert!(vm.heap.len() == 0);
+}
+
 
 //---------------------------------------------------------------------
 // Main program
@@ -203,6 +223,7 @@ fn main() {
   test2();
   test3();
   test4();
+  perftest();
   println!("Tests completed successfully!");
 }
 
