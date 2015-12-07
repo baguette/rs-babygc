@@ -2,11 +2,13 @@
 // http://journal.stuffwithstuff.com/2013/12/08/babys-first-garbage-collector/
 
 use std::rc::Rc;
+use std::cell::Cell;
 use std::cell::RefCell;
 
-const INITIAL_GC_THRESHOLD: usize = 4;
+const INITIAL_GC_THRESHOLD: usize = 10;
 
-type Sobject = Rc<RefCell<Object>>;
+type GCHeader = bool;   // True if marked, false otherwise
+type Sobject = Rc<(Cell<GCHeader>, RefCell<Object>)>;
 
 #[derive(Debug)]
 enum Vobject {
@@ -16,8 +18,7 @@ enum Vobject {
 
 #[derive(Debug)]
 struct Object {
-  val: Vobject,
-  marked: bool
+  val: Vobject
 }
 
 #[derive(Debug)]
@@ -36,14 +37,19 @@ impl VM {
     }
   }
 
-  fn mark(&mut self) {
-    for obj in &mut self.stack {
-      obj.borrow_mut().mark();
+  fn mark(&self) {
+    for obj in &self.stack {
+      Object::mark(obj);
     }
   }
 
   fn sweep(&mut self) {
-    self.heap.retain(|obj| obj.borrow().marked);
+    self.heap.retain(|obj| { let (ref gch, _) = **obj; gch.get() });
+
+    for obj in &self.heap {
+      let (ref gch, _) = **obj;
+      gch.set(false);
+    }
   }
 
   fn gc(&mut self) {
@@ -83,25 +89,26 @@ impl Object {
     }
 
     let obj = Object {
-      val: val,
-      marked: false
+      val: val
     };
 
-    let obj = Rc::new(RefCell::new(obj));
+    let obj = Rc::new((Cell::new(false), RefCell::new(obj)));
     vm.heap.push(obj.clone());
     obj
   }
 
-  fn mark(&mut self) {
-    if self.marked {
+  fn mark(obj: &Sobject) {
+    let (ref gch, ref val) = **obj;
+
+    if gch.get() {
       return;
     }
 
-    self.marked = true;
+    gch.set(true);
 
-    if let Vobject::Pair(ref mut head, ref mut tail) = self.val {
-      head.borrow_mut().mark();
-      tail.borrow_mut().mark();
+    if let Vobject::Pair(ref head, ref tail) = val.borrow().val {
+      Object::mark(head);
+      Object::mark(tail);
     }
   }
 }
@@ -170,16 +177,12 @@ fn test4() {
   let b = vm.push_pair();
 
   // set up a cycle
-  if let Vobject::Pair(_, ref mut x) = a.borrow_mut().val { *x = b.clone() }
-  if let Vobject::Pair(_, ref mut x) = b.borrow_mut().val { *x = a.clone() }
+  if let Vobject::Pair(_, ref mut x) = a.1.borrow_mut().val { *x = a.clone() }
+  if let Vobject::Pair(_, ref mut x) = b.1.borrow_mut().val { *x = b.clone() }
 
   vm.gc();
 
-  // Bob's original test used 4. I'm getting 5 for some reason.
-  // It *is* collecting something, and not getting stuck in an
-  // infinite loop, so I'm going to guess it's okay for now.
-  //assert!(vm.heap.len() == 4);
-  assert!(vm.heap.len() == 5);
+  assert!(vm.heap.len() == 4);
 }
 
 
